@@ -13,23 +13,15 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.appcompat.app.AppCompatActivity
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
-    private lateinit var swipeRefresh: SwipeRefreshLayout
     private val appUrl = "https://script.google.com/macros/s/AKfycbyeBpFjNBIW5h7WxMS-B0kQ5rTazMboP9fw-3fsxfh-PZilIZGM-uvq3mJuLB7rLwlB/exec"
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        swipeRefresh = SwipeRefreshLayout(this)
-        swipeRefresh.layoutParams = ViewGroup.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT
-        )
 
         webView = WebView(this)
         webView.layoutParams = ViewGroup.LayoutParams(
@@ -37,9 +29,7 @@ class MainActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT
         )
         webView.setBackgroundColor(Color.parseColor("#19132B"))
-
-        swipeRefresh.addView(webView)
-        setContentView(swipeRefresh)
+        setContentView(webView)
 
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
@@ -48,7 +38,7 @@ class MainActivity : AppCompatActivity() {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
-            useWideViewPort = true
+            useWideViewPort = false
             loadWithOverviewMode = false
             builtInZoomControls = false
             displayZoomControls = false
@@ -73,15 +63,33 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
-                swipeRefresh.isRefreshing = false
-                view?.evaluateJavascript(
-                    "(function(){var f=document.getElementById('sandboxFrame');if(f){var p=f.closest('tr');if(p&&p.previousElementSibling)p.previousElementSibling.style.display='none';}})();",
-                    null
-                )
+                val js = """
+                    (function(){
+                      var tries = 0;
+                      var t = setInterval(function(){
+                        tries++;
+                        var all = document.querySelectorAll('div, table, tr');
+                        for (var i = 0; i < all.length; i++) {
+                          var txt = (all[i].innerText || '');
+                          if (txt.indexOf('Google Apps Script') !== -1 && all[i].offsetHeight < 90) {
+                            all[i].style.display = 'none';
+                          }
+                        }
+                        var f = document.getElementById('sandboxFrame');
+                        if (f) {
+                          f.style.height = '100vh';
+                          f.style.minHeight = '100vh';
+                          f.style.width = '100%';
+                          if (f.parentElement) f.parentElement.style.height = '100vh';
+                        }
+                        if (tries > 15) clearInterval(t);
+                      }, 400);
+                    })();
+                """.trimIndent()
+                view?.evaluateJavascript(js, null)
             }
         }
 
-        swipeRefresh.setOnRefreshListener { webView.reload() }
         webView.loadUrl(appUrl)
     }
 
