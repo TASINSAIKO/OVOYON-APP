@@ -2,8 +2,10 @@ package com.ovoyon.fundmanager
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
+import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -24,7 +26,18 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
 
         swipeRefresh = SwipeRefreshLayout(this)
+        swipeRefresh.layoutParams = ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        )
+
         webView = WebView(this)
+        webView.layoutParams = ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        )
+        webView.setBackgroundColor(Color.parseColor("#19132B"))
+
         swipeRefresh.addView(webView)
         setContentView(swipeRefresh)
 
@@ -35,8 +48,10 @@ class MainActivity : AppCompatActivity() {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
-            loadWithOverviewMode = true
             useWideViewPort = true
+            loadWithOverviewMode = false
+            builtInZoomControls = false
+            displayZoomControls = false
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             userAgentString = userAgentString.replace("; wv", "")
         }
@@ -59,6 +74,10 @@ class MainActivity : AppCompatActivity() {
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 swipeRefresh.isRefreshing = false
+                view?.evaluateJavascript(
+                    "(function(){var f=document.getElementById('sandboxFrame');if(f){var p=f.closest('tr');if(p&&p.previousElementSibling)p.previousElementSibling.style.display='none';}})();",
+                    null
+                )
             }
         }
 
