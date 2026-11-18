@@ -1,9 +1,18 @@
 package com.ovoyon.fundmanager
 
+import android.Manifest
 import android.annotation.SuppressLint
+import android.app.AlarmManager
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -21,17 +30,135 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.Calendar
+
+const val OVOYON_APP_URL = "https://script.google.com/macros/s/AKfycbyeBpFjNBIW5h7WxMS-B0kQ5rTazMboP9fw-3fsxfh-PZilIZGM-uvq3mJuLB7rLwlB/exec"
+const val OVOYON_CHANNEL_ID = "ovoyon_daily_channel"
+
+fun scheduleDaily8PmReminder(context: Context) {
+    val alarmMgr = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    val intent = Intent(context, DailyReminderReceiver::class.java)
+    val pi = PendingIntent.getBroadcast(
+        context, 800, intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+    val cal = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, 20)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        if (timeInMillis <= System.currentTimeMillis()) {
+            add(Calendar.DAY_OF_YEAR, 1)
+        }
+    }
+    alarmMgr.setInexactRepeating(
+        AlarmManager.RTC_WAKEUP,
+        cal.timeInMillis,
+        AlarmManager.INTERVAL_DAY,
+        pi
+    )
+}
+
+class DailyReminderReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent?) {
+        if (intent?.action == Intent.ACTION_BOOT_COMPLETED) {
+            scheduleDaily8PmReminder(context)
+            return
+        }
+        val pendingResult = goAsync()
+        Thread {
+            try {
+                createChannel(context)
+                showNotif(
+                    context, 1001,
+                    "📢 অভয়ন সমিতি — রাত ৮টার WhatsApp আপডেট",
+                    "আজকের তহবিলের মেসেজ WhatsApp গ্রুপে পাঠানোর সময় হয়েছে! ট্যাপ করে পাঠান।"
+                )
+                val conn = (URL("$OVOYON_APP_URL?action=status").openConnection() as HttpURLConnection).apply {
+                    instanceFollowRedirects = true
+                    connectTimeout = 10000
+                    readTimeout = 10000
+                }
+                val body = conn.inputStream.bufferedReader().readText()
+                val json = JSONObject(body)
+                val redCount = json.optInt("redAlertCount", 0)
+                if (redCount > 0) {
+                    val arr = json.optJSONArray("redNames")
+                    val names = mutableListOf<String>()
+                    if (arr != null) {
+                        for (i in 0 until arr.length()) names.add(arr.getString(i))
+                    }
+                    showNotif(
+                        context, 1002,
+                        "🚨 ৭+ দিন বকেয়া সতর্কতা ($redCount জন)",
+                        "${names.joinToString(", ")}-এর ৭+ দিন বকেয়া! WhatsApp-এ তাগাদা দিতে ট্যাপ করুন।"
+                    )
+                }
+            } catch (_: Exception) {
+            } finally {
+                pendingResult.finish()
+            }
+        }.start()
+    }
+
+    private fun createChannel(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val ch = NotificationChannel(
+                OVOYON_CHANNEL_ID,
+                "অভয়ন দৈনিক রিমাইন্ডার",
+                NotificationManager.IMPORTANCE_HIGH
+            )
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.createNotificationChannel(ch)
+        }
+    }
+
+    private fun showNotif(context: Context, id: Int, title: String, text: String) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+        val tapIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pi = PendingIntent.getActivity(
+            context, id, tapIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notif = NotificationCompat.Builder(context, OVOYON_CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(pi)
+            .build()
+        NotificationManagerCompat.from(context).notify(id, notif)
+    }
+}
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private lateinit var splashOverlay: LinearLayout
-    private val appUrl = "https://script.google.com/macros/s/AKfycbyeBpFjNBIW5h7WxMS-B0kQ5rTazMboP9fw-3fsxfh-PZilIZGM-uvq3mJuLB7rLwlB/exec"
     private var revealed = false
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
+        }
+        scheduleDaily8PmReminder(this)
 
         val root = FrameLayout(this).apply {
             layoutParams = ViewGroup.LayoutParams(
@@ -156,7 +283,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        webView.loadUrl(appUrl)
+        webView.loadUrl(OVOYON_APP_URL)
     }
 
     @Deprecated("Deprecated in Java")
